@@ -155,4 +155,89 @@ public class InternshipApplicationTests {
 		assertThat(processed).isNotEmpty();
 		assertThat(processed.get(0).getStatus()).isEqualTo("PROCESSED");
 	}
+	@Test
+	@Order(13)
+	void testCreateItem_BlankName_ShouldFailValidation() throws Exception {
+		ItemDTO dto = new ItemDTO("", "desc", "valid@email.com", "NEW");
+
+		mockMvc.perform(post("/api/items")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(objectMapper.writeValueAsString(dto)))
+				.andExpect(status().isBadRequest());
+	}
+
+	@Test
+	@Order(14)
+	void testCreateItem_InvalidJson_ShouldReturnBadRequest() throws Exception {
+		String malformedJson = "{ \"name\": \"BadJson\", \"email\": \"noquote.com }"; // Broken JSON
+
+		mockMvc.perform(post("/api/items")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(malformedJson))
+				.andExpect(status().isBadRequest());
+	}
+
+	@Test
+	@Order(15)
+	void testCreateItem_DuplicateFields_DifferentID_ShouldSucceed() throws Exception {
+		ItemDTO dto = new ItemDTO("DupItem", "desc", "dup@example.com", "NEW");
+
+		// Create first
+		mockMvc.perform(post("/api/items")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(objectMapper.writeValueAsString(dto)))
+				.andExpect(status().isCreated());
+
+		// Create second with same content — should still succeed (not unique constraint violation)
+		mockMvc.perform(post("/api/items")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(objectMapper.writeValueAsString(dto)))
+				.andExpect(status().isCreated());
+	}
+
+	@Test
+	@Order(16)
+	void testUpdateItem_WithMissingName_ShouldFailValidation() throws Exception {
+		Item item = itemRepository.save(new Item(null, "Original", "desc", "NEW", "ok@example.com"));
+
+		ItemDTO dto = new ItemDTO("", "desc", "ok@example.com", "UPDATED");
+
+		mockMvc.perform(put("/api/items/" + item.getId())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(objectMapper.writeValueAsString(dto)))
+				.andExpect(status().isBadRequest());
+	}
+
+	@Test
+	@Order(17)
+	void testDeleteItem_AlreadyDeleted() throws Exception {
+		Item item = itemRepository.save(new Item(null, "DelOnce", "desc", "NEW", "x@example.com"));
+
+		// Delete first time
+		mockMvc.perform(delete("/api/items/" + item.getId()))
+				.andExpect(status().isNoContent());
+
+		// Delete again — should now return 404
+		mockMvc.perform(delete("/api/items/" + item.getId()))
+				.andExpect(status().isNotFound());
+	}
+
+	@Test
+	@Order(18)
+	void testProcessItemsAsync_NoDuplicatesInResult() {
+		itemRepository.save(new Item(null, "NoDup1", "desc", "NEW", "a1@ex.com"));
+		itemRepository.save(new Item(null, "NoDup2", "desc", "NEW", "a2@ex.com"));
+		itemRepository.save(new Item(null, "NoDup3", "desc", "NEW", "a3@ex.com"));
+
+		List<Item> processed = itemService.processItemsAsync();
+
+		// Ensure no duplicates in processed items
+		long distinctCount = processed.stream()
+				.map(Item::getId)
+				.distinct()
+				.count();
+
+		assertThat(distinctCount).isEqualTo(processed.size());
+	}
+
 }
